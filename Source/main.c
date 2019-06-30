@@ -84,7 +84,11 @@ int main()
 		crang_execute_commands_immediate(graphicsDevice,
 			&(crang_cmd_buffer_t)
 			{
-				.commandDescs = (crang_cmd_e[]) { [0] = crang_cmd_create_shader },
+				.commandDescs = (crang_cmd_e[])
+				{
+					[0] = crang_cmd_create_shader,
+					[1] = crang_cmd_callback
+				},
 				.commandDatas = (void*[])
 				{
 					[0] = &(crang_cmd_create_shader_t)
@@ -92,11 +96,15 @@ int main()
 						.shaderId = vertShader,
 						.source = vertSource,
 						.sourceSize = vertSize
+					},
+					[1] = &(crang_cmd_callback_t)
+					{
+						.callback = &free,
+						.data = vertSource
 					}
 				},
-				.count = 1
+				.count = 2
 			});
-		free(vertSource);
 	}
 
 	{
@@ -113,7 +121,11 @@ int main()
 		crang_execute_commands_immediate(graphicsDevice,
 			&(crang_cmd_buffer_t)
 			{
-				.commandDescs = (crang_cmd_e[]) { [0] = crang_cmd_create_shader },
+				.commandDescs = (crang_cmd_e[])
+				{
+					[0] = crang_cmd_create_shader,
+					[1] = crang_cmd_callback
+				},
 				.commandDatas = (void*[])
 				{
 					[0] = &(crang_cmd_create_shader_t)
@@ -121,11 +133,72 @@ int main()
 						.shaderId = fragShader,
 						.source = fragSource,
 						.sourceSize = fragSize
+					},
+					[1] = &(crang_cmd_callback_t)
+					{
+						.callback = &free,
+						.data = fragSource
 					}
 				},
-				.count = 1
+				.count = 2
 			});
-		free(fragSource);
+	}
+
+	// Vertex Buffer
+	crang_buffer_id_t vertexBuffer = crang_request_buffer_id(graphicsDevice);
+	crang_buffer_id_t indexBuffer = crang_request_buffer_id(graphicsDevice);
+
+	{
+		crang_execute_commands_immediate(graphicsDevice,
+			&(crang_cmd_buffer_t)
+			{
+				.commandDescs = (crang_cmd_e[])
+				{
+					[0] = crang_cmd_create_buffer,
+					[1] = crang_cmd_copy_to_buffer,
+					[2] = crang_cmd_create_buffer,
+					[3] = crang_cmd_copy_to_buffer
+				},
+				.commandDatas = (void*[])
+				{
+					[0] = &(crang_cmd_create_buffer_t)
+					{
+						.bufferId = vertexBuffer,
+						.size = sizeof(float) * 3 * 4,
+						.type = crang_buffer_index
+					},
+					[1] = &(crang_cmd_copy_to_buffer_t)
+					{
+						.bufferId = vertexBuffer,
+						.data = (float[])
+						{ 
+							-1.0f, -1.0f, 0.0f,
+							1.0f, -1.0f, 0.0f,
+							1.0f, 1.0f, 0.0f,
+							-1.0f, 1.0f, 0.0f
+						},
+						.size = sizeof(float) * 3 * 4,
+						.offset = 0
+					},
+					[2] = &(crang_cmd_create_buffer_t)
+					{
+						.bufferId = indexBuffer,
+						.size = sizeof(unsigned int) * 6,
+						.type = crang_buffer_vertex
+					},
+					[3] = &(crang_cmd_copy_to_buffer_t)
+					{
+						.bufferId = indexBuffer,
+						.data = (unsigned int[])
+						{ 
+							0, 1, 2, 1, 2, 3
+						},
+						.size = sizeof(unsigned int) * 6,
+						.offset = 0
+					},
+				},
+				.count = 4
+			});
 	}
 
 	crang_pipeline_t* pipeline = crang_create_pipeline(buffer, graphicsDevice, &(crang_pipeline_desc_t)
