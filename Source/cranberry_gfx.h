@@ -9,18 +9,17 @@ typedef struct _crang_ctx_t crang_ctx_t;
 typedef struct _crang_graphics_device_t crang_graphics_device_t;
 typedef struct _crang_surface_t crang_surface_t;
 typedef struct _crang_present_t crang_present_t;
-typedef struct _crang_pipeline_t crang_pipeline_t;
-
-#define crang_max_vertex_attributes 32
-#define crang_max_vertex_inputs 32
 
 typedef struct { unsigned int id; } crang_shader_id_t;
 typedef struct { unsigned int id; } crang_buffer_id_t;
+typedef struct { unsigned int id; } crang_pipeline_id_t;
+typedef struct { unsigned int id; } crang_recording_buffer_id_t;
 
 typedef enum
 {
 	crang_vertex_format_f32_1,
 	crang_vertex_format_f32_2,
+	crang_vertex_format_f32_3,
 	crang_vertex_format_max
 } crang_vertex_format_e;
 
@@ -29,7 +28,7 @@ typedef struct
 	unsigned int binding;
 	unsigned int location;
 	unsigned int offset;
-	unsigned int format;
+	crang_vertex_format_e format;
 } crang_vertex_attribute_t;
 
 typedef struct
@@ -60,13 +59,13 @@ typedef struct
 
 	struct
 	{
-		crang_vertex_input_t inputs[crang_max_vertex_inputs];
+		crang_vertex_input_t* inputs;
 		unsigned int count;
 	} vertexInputs;
 
 	struct
 	{
-		crang_vertex_attribute_t attribs[crang_max_vertex_attributes];
+		crang_vertex_attribute_t* attribs;
 		unsigned int count;
 	} vertexAttributes;
 
@@ -78,6 +77,12 @@ typedef struct
 	crang_present_t* presentCtx;
 	crang_surface_t* surface;
 	float clearColor[3];
+
+	struct
+	{
+		crang_recording_buffer_id_t* buffers;
+		unsigned int count;
+	} recordedBuffers;
 } crang_render_desc_t;
 
 typedef enum
@@ -85,7 +90,11 @@ typedef enum
 	crang_cmd_create_shader,
 	crang_cmd_create_buffer,
 	crang_cmd_copy_to_buffer,
-	crang_cmd_callback
+	crang_cmd_callback, // not sure about callbacks yet. I'll see if it bites me in the butt.
+	crang_cmd_bind_pipeline,
+	crang_cmd_bind_vertex_inputs,
+	crang_cmd_bind_index_input,
+	crang_cmd_draw_indexed,
 } crang_cmd_e;
 
 typedef struct
@@ -95,8 +104,25 @@ typedef struct
 	unsigned int count;
 } crang_cmd_buffer_t;
 
+typedef enum
+{
+	crang_shader_input_type_uniform_buffer,
+} crang_shader_input_type_e;
+
 typedef struct
 {
+	crang_shader_input_type_e type;
+	unsigned int binding;
+} crang_shader_input_t;
+
+typedef struct
+{
+	struct
+	{
+		crang_shader_input_t* inputs;
+		unsigned int count;
+	} shaderInputs;
+
 	crang_shader_id_t shaderId;
 	void* source;
 	unsigned int sourceSize;
@@ -116,6 +142,45 @@ typedef struct
 	unsigned int size;
 	unsigned int offset;
 } crang_cmd_copy_to_buffer_t;
+
+typedef struct
+{
+	crang_pipeline_id_t pipelineId;
+} crang_cmd_bind_pipeline_t;
+
+typedef struct
+{
+	crang_buffer_id_t bufferId;
+	unsigned int binding;
+	unsigned int offset;
+} crang_vertex_input_binding_t;
+
+typedef struct
+{
+	crang_vertex_input_binding_t* bindings;
+	unsigned int count;
+} crang_cmd_bind_vertex_inputs_t;
+
+typedef enum
+{
+	crang_index_type_u16,
+	crang_index_type_u32,
+} crang_index_type_e;
+
+typedef struct
+{
+	crang_index_type_e indexType;
+	crang_buffer_id_t bufferId;
+	unsigned int offset;
+} crang_cmd_bind_index_input_t;
+
+typedef struct
+{
+	unsigned int indexCount;
+	unsigned int indexOffset;
+	unsigned int vertexOffset;
+	unsigned int instanceCount;
+} crang_cmd_draw_indexed_t;
 
 typedef void(*crang_callback_t)(void* data);
 typedef struct
@@ -144,15 +209,19 @@ unsigned int crang_present_size(void);
 crang_present_t* crang_create_present(void* buffer, crang_graphics_device_t* device, crang_surface_t* surface);
 void crang_destroy_present(crang_graphics_device_t* device, crang_present_t* presentCtx);
 
-unsigned int crang_pipeline_size(void);
-// buffer must be at least the size returned by crang_pipeline_size
-crang_pipeline_t* crang_create_pipeline(void* buffer, crang_graphics_device_t* device, crang_pipeline_desc_t* pipelineDesc);
-void crang_destroy_pipeline(crang_graphics_device_t* device, crang_pipeline_t* pipeline);
+crang_pipeline_id_t crang_create_pipeline(crang_graphics_device_t* device, crang_pipeline_desc_t* pipelineDesc);
 
-crang_shader_id_t crang_request_shader_id(crang_graphics_device_t* device);
+crang_shader_id_t crang_request_shader_id(crang_graphics_device_t* device, crang_shader_e type);
 crang_buffer_id_t crang_request_buffer_id(crang_graphics_device_t* device);
 
+crang_recording_buffer_id_t crang_request_recording_buffer_id(crang_graphics_device_t* device);
+
+// Execute a command stream immediately. Blocking call!
 void crang_execute_commands_immediate(crang_graphics_device_t* device, crang_cmd_buffer_t* cmdBuffer);
+
+// Record a command stream, some commands might be executed in the process such as callbacks.
+// Allows you to provide recorded commands to rendering.
+void crang_record_commands(crang_graphics_device_t* device, crang_present_t* present, crang_recording_buffer_id_t recordingBuffer, crang_cmd_buffer_t* cmdBuffer);
 void crang_render(crang_render_desc_t* renderDesc);
 
 #endif // __CRANBERRY_GFX
@@ -346,6 +415,7 @@ cranvk_allocation_t cranvk_allocator_allocate(VkDevice device, cranvk_allocator_
 				cranvk_memory_block_t* block = &allocator->blockPool[newBlockIndex];
 				block->size = memoryPool->size;
 				block->offset = 0;
+				block->allocated = false;
 
 				memoryPool->headIndex = newBlockIndex;
 				memoryPool->nextId = 1;
@@ -423,6 +493,7 @@ cranvk_allocation_t cranvk_allocator_allocate(VkDevice device, cranvk_allocator_
 		left->offset = iter->offset;
 		left->size = newBlockSize;
 		left->id = memoryPool->nextId;
+		left->allocated = false;
 		++memoryPool->nextId;
 
 		uint32_t rightIndex = allocator->freeBlockCount - 1;
@@ -432,6 +503,7 @@ cranvk_allocation_t cranvk_allocator_allocate(VkDevice device, cranvk_allocator_
 		right->offset = iter->offset + newBlockSize;
 		right->size = newBlockSize;
 		right->id = memoryPool->nextId;
+		right->allocated = false;
 		++memoryPool->nextId;
 
 
@@ -540,6 +612,11 @@ const char* cranvk_validation_layers[cranvk_validation_count] = {};
 #define cranvk_max_buffer_count 100
 #define cranvk_max_framebuffer_count 100
 #define cranvk_max_single_use_resource_count 10
+#define cranvk_max_pipeline_count 10
+#define cranvk_max_command_buffer_count 1000
+#define cranvk_max_shader_inputs 32
+#define cranvk_max_vertex_inputs 32
+#define cranvk_max_vertex_attributes 32
 
 typedef struct
 {
@@ -550,6 +627,14 @@ typedef struct
 {
 	VkSurfaceKHR surface;
 } cranvk_surface_t;
+
+typedef struct
+{
+	VkBuffer buffers[cranvk_max_single_use_resource_count];
+	uint32_t bufferCount;
+	cranvk_allocation_t allocations[cranvk_max_single_use_resource_count];
+	uint32_t allocationCount;
+} cranvk_transient_resources_t;
 
 typedef struct
 {
@@ -569,6 +654,7 @@ typedef struct
 
 	struct
 	{
+		crang_shader_e types[cranvk_max_shader_count];
 		VkShaderModule shaders[cranvk_max_shader_count];
 		VkDescriptorSetLayout descriptorLayouts[cranvk_max_shader_count];
 		uint32_t shaderCount;
@@ -580,6 +666,21 @@ typedef struct
 		cranvk_allocation_t allocations[cranvk_max_buffer_count];
 		uint32_t bufferCount;
 	} buffers;
+
+	struct
+	{
+		VkPipeline pipelines[cranvk_max_pipeline_count];
+		VkPipelineLayout layouts[cranvk_max_pipeline_count];
+		uint32_t pipelineCount;
+	} pipelines;
+
+	struct
+	{
+		// Recording buffers keep track of their single use resources until they're reset.
+		cranvk_transient_resources_t singleUseResources[cranvk_max_command_buffer_count];
+		VkCommandBuffer recordingBuffers[cranvk_max_command_buffer_count];
+		uint32_t bufferCount;
+	} commandBuffers;
 
 	VkDescriptorPool descriptorPool;
 	VkPipelineCache pipelineCache;
@@ -628,29 +729,18 @@ typedef struct
 	} framebufferData;
 
 	uint32_t backBufferIndex;
-	VkCommandBuffer primaryCommandBuffers[cranvk_render_buffer_count];
+
+	VkCommandBuffer primaryRenderBuffers[cranvk_render_buffer_count];
 
 	cranvk_render_pass_t presentRenderPass;
 } cranvk_present_t;
 
 typedef struct
 {
-	VkPipelineLayout pipelineLayout;
-	VkPipeline pipeline;
-} cranvk_pipeline_t;
-
-typedef struct
-{
 	VkCommandBuffer commandBuffer;
 	
-	// Temp resources are allocated when an execution context is closed
-	struct
-	{
-		VkBuffer buffers[cranvk_max_single_use_resource_count];
-		uint32_t bufferCount;
-		cranvk_allocation_t allocations[cranvk_max_single_use_resource_count];
-		uint32_t allocationCount;
-	} singleUseResources;
+	// Temp resources are deallocated when an execution context is closed
+	cranvk_transient_resources_t singleUseResources;
 } cranvk_execution_ctx_t;
 
 unsigned int crang_ctx_size(void)
@@ -920,6 +1010,8 @@ void crang_destroy_graphics_device(crang_ctx_t* ctx, crang_graphics_device_t* de
 	cranvk_ctx_t* vkCtx = (cranvk_ctx_t*)ctx;
 	cranvk_graphics_device_t* vkDevice = (cranvk_graphics_device_t*)device;
 
+	vkDeviceWaitIdle(vkDevice->devices.logicalDevice);
+
 	for (uint32_t i = 0; i < vkDevice->shaders.shaderCount; i++)
 	{
 		vkDestroyShaderModule(vkDevice->devices.logicalDevice, vkDevice->shaders.shaders[i], cranvk_no_allocator);
@@ -930,6 +1022,12 @@ void crang_destroy_graphics_device(crang_ctx_t* ctx, crang_graphics_device_t* de
 	{
 		vkDestroyBuffer(vkDevice->devices.logicalDevice, vkDevice->buffers.buffers[i], cranvk_no_allocator);
 		cranvk_allocator_free(&vkDevice->allocator, vkDevice->buffers.allocations[i]);
+	}
+
+	for (uint32_t i = 0; i < vkDevice->pipelines.pipelineCount; i++)
+	{
+		vkDestroyPipeline(vkDevice->devices.logicalDevice, vkDevice->pipelines.pipelines[i], cranvk_no_allocator);
+		vkDestroyPipelineLayout(vkDevice->devices.logicalDevice, vkDevice->pipelines.layouts[i], cranvk_no_allocator);
 	}
 
 	vkDestroyFence(vkDevice->devices.logicalDevice, vkDevice->immediateFence, cranvk_no_allocator);
@@ -1242,7 +1340,7 @@ crang_present_t* crang_create_present(void* buffer, crang_graphics_device_t* dev
 			.commandPool = vkDevice->graphicsCommandPool
 		};
 
-		cranvk_check(vkAllocateCommandBuffers(vkDevice->devices.logicalDevice, &commandBufferAllocateInfo, vkPresent->primaryCommandBuffers));
+		cranvk_check(vkAllocateCommandBuffers(vkDevice->devices.logicalDevice, &commandBufferAllocateInfo, vkPresent->primaryRenderBuffers));
 	}
 
 	vkPresent->backBufferIndex = 0;
@@ -1295,7 +1393,7 @@ void cranvk_resize_present(cranvk_graphics_device_t* vkDevice, cranvk_surface_t*
 	cranvk_create_swapchain(vkDevice, vkSurface, vkPresent, vkPresent->swapchainData.swapchain);
 }
 
-crang_shader_id_t crang_request_shader_id(crang_graphics_device_t* device)
+crang_shader_id_t crang_request_shader_id(crang_graphics_device_t* device, crang_shader_e type)
 {
 	cranvk_graphics_device_t* vkDevice = (cranvk_graphics_device_t*)device;
 
@@ -1304,6 +1402,8 @@ crang_shader_id_t crang_request_shader_id(crang_graphics_device_t* device)
 	uint32_t nextSlot = vkDevice->shaders.shaderCount;
 	vkDevice->shaders.shaderCount++;
 
+	vkDevice->shaders.types[nextSlot] = type;
+
 	return (crang_shader_id_t){ .id = nextSlot };
 }
 
@@ -1311,7 +1411,7 @@ crang_buffer_id_t crang_request_buffer_id(crang_graphics_device_t* device)
 {
 	cranvk_graphics_device_t* vkDevice = (cranvk_graphics_device_t*)device;
 
-	cranvk_assert(vkDevice->buffers.bufferCount < cranvk_max_shader_count);
+	cranvk_assert(vkDevice->buffers.bufferCount < cranvk_max_buffer_count);
 
 	uint32_t nextSlot = vkDevice->buffers.bufferCount;
 	vkDevice->buffers.bufferCount++;
@@ -1319,16 +1419,36 @@ crang_buffer_id_t crang_request_buffer_id(crang_graphics_device_t* device)
 	return (crang_buffer_id_t){ .id = nextSlot };
 }
 
-unsigned int crang_pipeline_size(void)
+crang_recording_buffer_id_t crang_request_recording_buffer_id(crang_graphics_device_t* device)
 {
-	return sizeof(cranvk_pipeline_t);
+	cranvk_graphics_device_t* vkDevice = (cranvk_graphics_device_t*)device;
+
+	cranvk_assert(vkDevice->commandBuffers.bufferCount < cranvk_max_command_buffer_count);
+
+	uint32_t nextSlot = vkDevice->commandBuffers.bufferCount;
+	vkDevice->commandBuffers.bufferCount++;
+
+	VkCommandBufferAllocateInfo commandBufferAllocateInfo =
+	{
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+		.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY,
+		.commandBufferCount = 1,
+		.commandPool = vkDevice->graphicsCommandPool
+	};
+	cranvk_check(vkAllocateCommandBuffers(vkDevice->devices.logicalDevice, &commandBufferAllocateInfo, &vkDevice->commandBuffers.recordingBuffers[nextSlot]));
+
+	return (crang_recording_buffer_id_t){ .id = nextSlot };
 }
 
-crang_pipeline_t* crang_create_pipeline(void* buffer, crang_graphics_device_t* device, crang_pipeline_desc_t* pipelineDesc)
+crang_pipeline_id_t crang_create_pipeline(crang_graphics_device_t* device, crang_pipeline_desc_t* pipelineDesc)
 {
-	cranvk_pipeline_t* vkPipeline = (cranvk_pipeline_t*)buffer;
-
 	cranvk_graphics_device_t* vkDevice = (cranvk_graphics_device_t*)device;
+
+	cranvk_assert(vkDevice->pipelines.pipelineCount < cranvk_max_pipeline_count);
+	crang_pipeline_id_t pipelineId = { .id = vkDevice->pipelines.pipelineCount };
+	vkDevice->pipelines.pipelineCount++;
+
+
 	cranvk_present_t* vkPresent = (cranvk_present_t*)pipelineDesc->presentCtx;
 	cranvk_render_pass_t* vkRenderPass = &vkPresent->presentRenderPass;
 	crang_shader_id_t vertShader = pipelineDesc->shaders[crang_shader_vertex];
@@ -1348,11 +1468,11 @@ crang_pipeline_t* crang_create_pipeline(void* buffer, crang_graphics_device_t* d
 			.pSetLayouts = descriptorSetLayouts
 		};
 
-		cranvk_check(vkCreatePipelineLayout(vkDevice->devices.logicalDevice, &pipelineLayoutCreate, cranvk_no_allocator, &vkPipeline->pipelineLayout));
+		cranvk_check(vkCreatePipelineLayout(vkDevice->devices.logicalDevice, &pipelineLayoutCreate, cranvk_no_allocator, &vkDevice->pipelines.layouts[pipelineId.id]));
 	}
 
 	{
-		VkVertexInputBindingDescription inputBindings[crang_max_vertex_inputs];
+		VkVertexInputBindingDescription inputBindings[cranvk_max_vertex_inputs];
 		for (uint32_t i = 0; i < pipelineDesc->vertexInputs.count; i++)
 		{
 			inputBindings[i] = (VkVertexInputBindingDescription)
@@ -1366,10 +1486,11 @@ crang_pipeline_t* crang_create_pipeline(void* buffer, crang_graphics_device_t* d
 		VkFormat vkFormatConversionTable[crang_vertex_format_max] =
 		{
 			[crang_vertex_format_f32_1] = VK_FORMAT_R32_SFLOAT,
-			[crang_vertex_format_f32_2] = VK_FORMAT_R32G32_SFLOAT
+			[crang_vertex_format_f32_2] = VK_FORMAT_R32G32_SFLOAT,
+			[crang_vertex_format_f32_3] = VK_FORMAT_R32G32B32_SFLOAT,
 		};
 
-		VkVertexInputAttributeDescription inputAttributes[crang_max_vertex_attributes];
+		VkVertexInputAttributeDescription inputAttributes[cranvk_max_vertex_attributes];
 		for (uint32_t i = 0; i < pipelineDesc->vertexAttributes.count; i++)
 		{
 			inputAttributes[i] = (VkVertexInputAttributeDescription)
@@ -1448,6 +1569,7 @@ crang_pipeline_t* crang_create_pipeline(void* buffer, crang_graphics_device_t* d
 			.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT
 		};
 
+		cranvk_assert(vkDevice->shaders.types[vertShader.id] == crang_shader_vertex);
 		VkPipelineShaderStageCreateInfo vertexStage =
 		{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -1456,6 +1578,7 @@ crang_pipeline_t* crang_create_pipeline(void* buffer, crang_graphics_device_t* d
 			.stage = VK_SHADER_STAGE_VERTEX_BIT
 		};
 
+		cranvk_assert(vkDevice->shaders.types[fragShader.id] == crang_shader_fragment);
 		VkPipelineShaderStageCreateInfo fragStage =
 		{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -1495,7 +1618,7 @@ crang_pipeline_t* crang_create_pipeline(void* buffer, crang_graphics_device_t* d
 		VkGraphicsPipelineCreateInfo graphicsPipelineCreate =
 		{
 			.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-			.layout = vkPipeline->pipelineLayout,
+			.layout = vkDevice->pipelines.layouts[pipelineId.id],
 			.renderPass = vkRenderPass->renderPass,
 			.pVertexInputState = &vertexInputCreate,
 			.pInputAssemblyState = &inputAssemblyCreate,
@@ -1510,20 +1633,10 @@ crang_pipeline_t* crang_create_pipeline(void* buffer, crang_graphics_device_t* d
 			.pStages = shaderStages
 		};
 
-		cranvk_check(vkCreateGraphicsPipelines(vkDevice->devices.logicalDevice, vkDevice->pipelineCache, 1, &graphicsPipelineCreate, cranvk_no_allocator, &vkPipeline->pipeline));
+		cranvk_check(vkCreateGraphicsPipelines(vkDevice->devices.logicalDevice, vkDevice->pipelineCache, 1, &graphicsPipelineCreate, cranvk_no_allocator, &vkDevice->pipelines.pipelines[pipelineId.id]));
 	}
 
-	return (crang_pipeline_t*)vkPipeline;
-}
-
-void crang_destroy_pipeline(crang_graphics_device_t* device, crang_pipeline_t* pipeline)
-{
-	cranvk_graphics_device_t* vkDevice = (cranvk_graphics_device_t*)device;
-	cranvk_pipeline_t* vkPipeline = (cranvk_pipeline_t*)pipeline;
-
-	vkDeviceWaitIdle(vkDevice->devices.logicalDevice);
-	vkDestroyPipeline(vkDevice->devices.logicalDevice, vkPipeline->pipeline, cranvk_no_allocator);
-	vkDestroyPipelineLayout(vkDevice->devices.logicalDevice, vkPipeline->pipelineLayout, cranvk_no_allocator);
+	return pipelineId;
 }
 
 void crang_render(crang_render_desc_t* renderDesc)
@@ -1547,7 +1660,7 @@ void crang_render(crang_render_desc_t* renderDesc)
 		return;
 	}
 
-	VkCommandBuffer currentCommands = vkPresent->primaryCommandBuffers[currentBackBuffer];
+	VkCommandBuffer currentCommands = vkPresent->primaryRenderBuffers[currentBackBuffer];
 	{
 		cranvk_check(vkResetCommandBuffer(currentCommands, 0));
 
@@ -1573,9 +1686,13 @@ void crang_render(crang_render_desc_t* renderDesc)
 			.clearValueCount = 1,
 			.pClearValues = &clearValue
 		};
-		vkCmdBeginRenderPass(currentCommands, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+		vkCmdBeginRenderPass(currentCommands, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 
-		// TODO: Bind constructed secondary command buffers
+		for (uint32_t i = 0; i < renderDesc->recordedBuffers.count; i++)
+		{
+			VkCommandBuffer recordedBuffer = vkDevice->commandBuffers.recordingBuffers[i];
+			vkCmdExecuteCommands(currentCommands, 1, &recordedBuffer);
+		}
 
 		vkCmdEndRenderPass(currentCommands);
 		vkEndCommandBuffer(currentCommands);
@@ -1637,12 +1754,34 @@ void cranvk_create_shader(cranvk_graphics_device_t* vkDevice, cranvk_execution_c
 	}
 
 	{
-		// TODO: Actually bind things
+		VkShaderStageFlagBits shaderStageConversionTable[] =
+		{
+			[crang_shader_vertex] = VK_SHADER_STAGE_VERTEX_BIT,
+			[crang_shader_fragment] = VK_SHADER_STAGE_FRAGMENT_BIT
+		};
+
+		VkDescriptorType descriptorTypeConversionTable[] =
+		{
+			[crang_shader_input_type_uniform_buffer] = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+		};
+
+		VkDescriptorSetLayoutBinding layoutBindings[cranvk_max_shader_inputs];
+		for (uint32_t i = 0; i < createShaderData->shaderInputs.count; i++)
+		{
+			layoutBindings[i] = (VkDescriptorSetLayoutBinding)
+			{
+				.stageFlags = shaderStageConversionTable[vkDevice->shaders.types[createShaderData->shaderId.id]],
+				.binding = createShaderData->shaderInputs.inputs[i].binding,
+				.descriptorType = descriptorTypeConversionTable[createShaderData->shaderInputs.inputs[i].type],
+				.descriptorCount = 1
+			};
+		}
+
 		VkDescriptorSetLayoutCreateInfo createLayout =
 		{
 			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-			.bindingCount = 0,
-			.pBindings = NULL
+			.bindingCount = createShaderData->shaderInputs.count,
+			.pBindings = layoutBindings
 		};
 
 		VkDescriptorSetLayout* layout = &vkDevice->shaders.descriptorLayouts[createShaderData->shaderId.id];
@@ -1666,7 +1805,7 @@ void cranvk_create_buffer(cranvk_graphics_device_t* vkDevice, cranvk_execution_c
 	{
 		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
 		.size = createBufferData->size,
-		.usage = bufferUsages[createBufferData->type] | VK_BUFFER_USAGE_TRANSFER_DST_BIT // buffers created trough ctreae buffer can always be transfered to
+		.usage = bufferUsages[createBufferData->type] | VK_BUFFER_USAGE_TRANSFER_DST_BIT // buffers created through create buffer can always be transfered to
 	};
 
 	VkBuffer* buffer = &vkDevice->buffers.buffers[createBufferData->bufferId.id];
@@ -1709,16 +1848,15 @@ void cranvk_copy_to_buffer(cranvk_graphics_device_t* vkDevice, cranvk_execution_
 
 	{
 		void* memory;
-		unsigned int offset = 0;
 		unsigned int flags = 0;
-		cranvk_check(vkMapMemory(vkDevice->devices.logicalDevice, allocation.memory, offset, copyToBufferData->size, flags, &memory));
+		cranvk_check(vkMapMemory(vkDevice->devices.logicalDevice, allocation.memory, allocation.offset, copyToBufferData->size, flags, &memory));
 		memcpy(memory, copyToBufferData->data, copyToBufferData->size);
 
 		VkMappedMemoryRange mappedMemory = 
 		{
 			.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
 			.memory = allocation.memory,
-			.offset = 0,
+			.offset =allocation.offset,
 			.size = copyToBufferData->size
 		};
 		vkFlushMappedMemoryRanges(vkDevice->devices.logicalDevice, 1, &mappedMemory);
@@ -1753,6 +1891,43 @@ void cranvk_execute_callback(cranvk_graphics_device_t* vkDevice, cranvk_executio
 	callbackCmd->callback(callbackCmd->data);
 }
 
+void cranvk_bind_pipeline(cranvk_graphics_device_t* vkDevice, cranvk_execution_ctx_t* context, void* commandData)
+{
+	crang_cmd_bind_pipeline_t* bindPipelineCmd = (crang_cmd_bind_pipeline_t*)commandData;
+	vkCmdBindPipeline(context->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vkDevice->pipelines.pipelines[bindPipelineCmd->pipelineId.id]);
+}
+
+void cranvk_bind_vertex_inputs(cranvk_graphics_device_t* vkDevice, cranvk_execution_ctx_t* context, void* commandData)
+{
+	crang_cmd_bind_vertex_inputs_t* vertexInputs = (crang_cmd_bind_vertex_inputs_t*)commandData;
+	for (uint32_t i = 0; i < vertexInputs->count; i++)
+	{
+		vkCmdBindVertexBuffers(
+			context->commandBuffer, vertexInputs->bindings[i].binding, 1,
+			&vkDevice->buffers.buffers[vertexInputs->bindings[i].bufferId.id], &(VkDeviceSize){ vertexInputs->bindings[i].offset });
+	}
+}
+
+void cranvk_bind_index_input(cranvk_graphics_device_t* vkDevice, cranvk_execution_ctx_t* context, void* commandData)
+{
+	VkIndexType indexTypeConversionTable[] =
+	{
+		[crang_index_type_u16] = VK_INDEX_TYPE_UINT16,
+		[crang_index_type_u32] = VK_INDEX_TYPE_UINT32
+	};
+
+	crang_cmd_bind_index_input_t* indexInput = (crang_cmd_bind_index_input_t*)commandData;
+	vkCmdBindIndexBuffer(
+		context->commandBuffer, vkDevice->buffers.buffers[indexInput->bufferId.id],
+		(VkDeviceSize) { indexInput->offset }, indexTypeConversionTable[indexInput->indexType]);
+}
+
+void cranvk_draw_indexed(cranvk_graphics_device_t* vkDevice, cranvk_execution_ctx_t* context, void* commandData)
+{
+	crang_cmd_draw_indexed_t* drawIndexed = (crang_cmd_draw_indexed_t*)commandData;
+	vkCmdDrawIndexed(context->commandBuffer, drawIndexed->indexCount, drawIndexed->instanceCount, drawIndexed->indexOffset, drawIndexed->vertexOffset, 0);
+}
+
 typedef void(*cranvk_cmd_processor)(cranvk_graphics_device_t*, cranvk_execution_ctx_t*, void*);
 cranvk_cmd_processor cmdProcessors[] =
 {
@@ -1760,6 +1935,10 @@ cranvk_cmd_processor cmdProcessors[] =
 	[crang_cmd_create_buffer] = &cranvk_create_buffer,
 	[crang_cmd_copy_to_buffer] = &cranvk_copy_to_buffer,
 	[crang_cmd_callback] = &cranvk_execute_callback,
+	[crang_cmd_bind_pipeline] = &cranvk_bind_pipeline,
+	[crang_cmd_bind_vertex_inputs] = &cranvk_bind_vertex_inputs,
+	[crang_cmd_bind_index_input] = &cranvk_bind_index_input,
+	[crang_cmd_draw_indexed] = &cranvk_draw_indexed,
 };
 
 void crang_execute_commands_immediate(crang_graphics_device_t* device, crang_cmd_buffer_t* cmdBuffer)
@@ -1810,6 +1989,43 @@ void crang_execute_commands_immediate(crang_graphics_device_t* device, crang_cmd
 	{
 		cranvk_allocator_free(&vkDevice->allocator, context.singleUseResources.allocations[i]);
 	}
+}
+
+void crang_record_commands(crang_graphics_device_t* device, crang_present_t* present, crang_recording_buffer_id_t recordingBuffer, crang_cmd_buffer_t* cmdBuffer)
+{
+	cranvk_graphics_device_t* vkDevice = (cranvk_graphics_device_t*)device;
+	cranvk_present_t* vkPresent = (cranvk_present_t*)present;
+
+	cranvk_execution_ctx_t context = { 0 };
+	context.commandBuffer = vkDevice->commandBuffers.recordingBuffers[recordingBuffer.id];
+	
+	VkCommandBufferInheritanceInfo inheritanceInfo =
+	{
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
+		.renderPass = vkPresent->presentRenderPass.renderPass,
+		.subpass = 0, // TODO: subpass is always 0 for now
+		.framebuffer = VK_NULL_HANDLE, //TODO: Do we want to be able to specify the framebuffer?
+		.occlusionQueryEnable = VK_FALSE,
+		.queryFlags = 0,
+		.pipelineStatistics = 0
+	};
+
+	VkCommandBufferBeginInfo beginBufferInfo =
+	{
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+		.flags = VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT | VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT, // TODO: right now simultaneous usage is fine, should see about later
+		.pInheritanceInfo = &inheritanceInfo,
+	};
+	cranvk_check(vkBeginCommandBuffer(context.commandBuffer, &beginBufferInfo));
+
+	for (uint32_t i = 0; i < cmdBuffer->count; i++)
+	{
+		crang_cmd_e command = cmdBuffer->commandDescs[i];
+		cmdProcessors[command](vkDevice, &context, cmdBuffer->commandDatas[i]);
+	}
+
+	cranvk_check(vkEndCommandBuffer(context.commandBuffer));
+	memcpy(&vkDevice->commandBuffers.singleUseResources[recordingBuffer.id], &context.singleUseResources, sizeof(cranvk_transient_resources_t));
 }
 
 #endif // CRANBERRY_GFX_IMPLEMENTATION

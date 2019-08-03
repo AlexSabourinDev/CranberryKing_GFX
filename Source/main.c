@@ -36,7 +36,7 @@ int main()
 	HWND hwnd = CreateWindowEx(
 		0,
 		"CranberryWindow",
-		"Learn to Program Windows",
+		"CRANBERRIES",
 		WS_OVERLAPPEDWINDOW,
 		CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
 		NULL,
@@ -50,9 +50,8 @@ int main()
 	unsigned int surfaceSize = crang_win32_surface_size();
 	unsigned int graphicsDeviceSize = crang_graphics_device_size();
 	unsigned int presentCtxSize = crang_present_size();
-	unsigned int pipelineSize = crang_pipeline_size();
 
-	void* graphicsMemory = malloc(ctxSize + surfaceSize + graphicsDeviceSize + presentCtxSize + pipelineSize);
+	void* graphicsMemory = malloc(ctxSize + surfaceSize + graphicsDeviceSize + presentCtxSize);
 
 	uint8_t* buffer = (uint8_t*)graphicsMemory;
 	crang_ctx_t* ctx = crang_create_ctx(buffer);
@@ -67,8 +66,8 @@ int main()
 	crang_present_t* presentCtx = crang_create_present(buffer, graphicsDevice, surface);
 	buffer += presentCtxSize;
 
-	crang_shader_id_t vertShader = crang_request_shader_id(graphicsDevice);
-	crang_shader_id_t fragShader = crang_request_shader_id(graphicsDevice);
+	crang_shader_id_t vertShader = crang_request_shader_id(graphicsDevice, crang_shader_vertex);
+	crang_shader_id_t fragShader = crang_request_shader_id(graphicsDevice, crang_shader_fragment);
 
 	{
 		FILE* file = fopen("../../../Shaders/SPIR-V/default.vspv", "rb");
@@ -95,7 +94,11 @@ int main()
 					{
 						.shaderId = vertShader,
 						.source = vertSource,
-						.sourceSize = vertSize
+						.sourceSize = vertSize,
+						.shaderInputs =
+						{
+							.count = 0,
+						}
 					},
 					[1] = &(crang_cmd_callback_t)
 					{
@@ -132,7 +135,11 @@ int main()
 					{
 						.shaderId = fragShader,
 						.source = fragSource,
-						.sourceSize = fragSize
+						.sourceSize = fragSize,
+						.shaderInputs =
+						{
+							.count = 0,
+						}
 					},
 					[1] = &(crang_cmd_callback_t)
 					{
@@ -165,17 +172,17 @@ int main()
 					{
 						.bufferId = vertexBuffer,
 						.size = sizeof(float) * 3 * 4,
-						.type = crang_buffer_index
+						.type = crang_buffer_vertex
 					},
 					[1] = &(crang_cmd_copy_to_buffer_t)
 					{
 						.bufferId = vertexBuffer,
 						.data = (float[])
 						{ 
-							-1.0f, -1.0f, 0.0f,
-							1.0f, -1.0f, 0.0f,
-							1.0f, 1.0f, 0.0f,
-							-1.0f, 1.0f, 0.0f
+							-0.5f, 0.5f, 0.0f,
+							0.5f, 0.5f, 0.0f,
+							0.5f, -0.5f, 0.0f,
+							-0.5f, -0.5f, 0.0f
 						},
 						.size = sizeof(float) * 3 * 4,
 						.offset = 0
@@ -183,17 +190,17 @@ int main()
 					[2] = &(crang_cmd_create_buffer_t)
 					{
 						.bufferId = indexBuffer,
-						.size = sizeof(unsigned int) * 6,
-						.type = crang_buffer_vertex
+						.size = sizeof(uint32_t) * 6,
+						.type = crang_buffer_index
 					},
 					[3] = &(crang_cmd_copy_to_buffer_t)
 					{
 						.bufferId = indexBuffer,
-						.data = (unsigned int[])
+						.data = (uint32_t[])
 						{ 
-							0, 1, 2, 1, 2, 3
+							0, 1, 2, 0, 2, 3
 						},
-						.size = sizeof(unsigned int) * 6,
+						.size = sizeof(uint32_t) * 6,
 						.offset = 0
 					},
 				},
@@ -201,7 +208,7 @@ int main()
 			});
 	}
 
-	crang_pipeline_t* pipeline = crang_create_pipeline(buffer, graphicsDevice, &(crang_pipeline_desc_t)
+	crang_pipeline_id_t pipeline = crang_create_pipeline(graphicsDevice, &(crang_pipeline_desc_t)
 	{
 		.presentCtx = presentCtx,
 		.shaders = 
@@ -212,17 +219,62 @@ int main()
 
 		.vertexInputs = 
 		{
-			.inputs[0] = { .binding = 0, .stride = sizeof(float) * 2 },
+			.inputs = (crang_vertex_input_t[])
+			{
+				[0] = {.binding = 0,.stride = sizeof(float) * 3 }
+			},
 			.count = 1
 		},
 
 		.vertexAttributes = 
 		{
-			.attribs[0] = { .binding = 0, .location = 0, .offset = 0, .format = crang_vertex_format_f32_2 },
+			.attribs = (crang_vertex_attribute_t[])
+			{
+				[0] = {.binding = 0,.location = 0,.offset = 0,.format = crang_vertex_format_f32_3 }
+			},
 			.count = 1
 		}
 	});
-	buffer += pipelineSize;
+
+	crang_recording_buffer_id_t rectangleDraw = crang_request_recording_buffer_id(graphicsDevice);
+	crang_record_commands(graphicsDevice, presentCtx, rectangleDraw, 
+		&(crang_cmd_buffer_t)
+		{
+			.commandDescs = (crang_cmd_e[])
+			{
+				[0] = crang_cmd_bind_pipeline,
+				[1] = crang_cmd_bind_vertex_inputs,
+				[2] = crang_cmd_bind_index_input,
+				[3] = crang_cmd_draw_indexed,
+			},
+			.commandDatas = (void*[])
+			{
+				[0] = &(crang_cmd_bind_pipeline_t)
+				{
+					.pipelineId = pipeline
+				},
+				[1] = &(crang_cmd_bind_vertex_inputs_t)
+				{
+					.bindings = (crang_vertex_input_binding_t[])
+					{
+						[0] = { .bufferId = vertexBuffer, .binding = 0, .offset = 0 }
+					},
+					.count = 1
+				},
+				[2] = &(crang_cmd_bind_index_input_t)
+				{
+					.bufferId = indexBuffer,
+					.offset = 0,
+					.indexType = crang_index_type_u32
+				},
+				[3] = &(crang_cmd_draw_indexed_t)
+				{
+					.indexCount = 6,
+					.instanceCount = 1,
+				}
+			},
+			.count = 4
+		});
 
 	MSG Msg;
 	while(GetMessage(&Msg, NULL, 0, 0) > 0)
@@ -232,14 +284,21 @@ int main()
 			.graphicsDevice = graphicsDevice,
 			.presentCtx = presentCtx,
 			.surface = surface,
-			.clearColor = { 0.7f, 0.2f, 0.1f }
+			.clearColor = { 0.7f, 0.2f, 0.1f },
+			.recordedBuffers =
+			{
+				.buffers = (crang_recording_buffer_id_t[])
+				{
+					rectangleDraw
+				},
+				.count = 1
+			}
 		});
 
 		TranslateMessage(&Msg);
 		DispatchMessage(&Msg);
 	}
 
-	crang_destroy_pipeline(graphicsDevice, pipeline);
 	crang_destroy_present(graphicsDevice, presentCtx);
 	crang_destroy_graphics_device(ctx, graphicsDevice);
 	crang_win32_destroy_surface(ctx, surface);
