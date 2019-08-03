@@ -20,7 +20,7 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\..\Source\cranberry_gfx.h">
+    <ClInclude Include="..\..\..\Source\cranberry_gfx_backend.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

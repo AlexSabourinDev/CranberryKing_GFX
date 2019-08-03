@@ -1,7 +1,7 @@
 #define _CRT_SECURE_NO_WARNINGS
 
-#define CRANBERRY_GFX_IMPLEMENTATION
-#include "cranberry_gfx.h"
+#define CRANBERRY_GFX_BACKEND_IMPLEMENTATION
+#include "cranberry_gfx_backend.h"
 
 #include <malloc.h>
 #include <stdio.h>
@@ -208,6 +208,60 @@ int main()
 			});
 	}
 
+	// Uniforms
+	{
+		crang_execute_commands_immediate(graphicsDevice,
+			&(crang_cmd_buffer_t)
+			{
+				.commandDescs = (crang_cmd_e[])
+				{
+					[0] = crang_cmd_create_buffer,
+					[1] = crang_cmd_copy_to_buffer,
+					[2] = crang_cmd_create_buffer,
+					[3] = crang_cmd_copy_to_buffer
+				},
+				.commandDatas = (void*[])
+				{
+					[0] = &(crang_cmd_create_buffer_t)
+					{
+						.bufferId = vertexBuffer,
+						.size = sizeof(float) * 3 * 4,
+						.type = crang_buffer_vertex
+					},
+					[1] = &(crang_cmd_copy_to_buffer_t)
+					{
+						.bufferId = vertexBuffer,
+						.data = (float[])
+						{ 
+							-0.5f, 0.5f, 0.0f,
+							0.5f, 0.5f, 0.0f,
+							0.5f, -0.5f, 0.0f,
+							-0.5f, -0.5f, 0.0f
+						},
+						.size = sizeof(float) * 3 * 4,
+						.offset = 0
+					},
+					[2] = &(crang_cmd_create_buffer_t)
+					{
+						.bufferId = indexBuffer,
+						.size = sizeof(uint32_t) * 6,
+						.type = crang_buffer_index
+					},
+					[3] = &(crang_cmd_copy_to_buffer_t)
+					{
+						.bufferId = indexBuffer,
+						.data = (uint32_t[])
+						{ 
+							0, 1, 2, 0, 2, 3
+						},
+						.size = sizeof(uint32_t) * 6,
+						.offset = 0
+					},
+				},
+				.count = 4
+			});
+	}
+
 	crang_pipeline_id_t pipeline = crang_create_pipeline(graphicsDevice, &(crang_pipeline_desc_t)
 	{
 		.presentCtx = presentCtx,
@@ -276,9 +330,29 @@ int main()
 			.count = 4
 		});
 
-	MSG Msg;
-	while(GetMessage(&Msg, NULL, 0, 0) > 0)
+	while (true)
 	{
+		bool done = false;
+
+		MSG msg;
+		while(PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE))
+		{
+			if (msg.message == WM_QUIT)
+			{
+				done = true;
+			}
+			else
+			{
+				TranslateMessage(&msg);
+				DispatchMessage(&msg);
+			}
+		}
+
+		if (done)
+		{
+			break;
+		}
+
 		crang_render(&(crang_render_desc_t)
 		{
 			.graphicsDevice = graphicsDevice,
@@ -294,9 +368,6 @@ int main()
 				.count = 1
 			}
 		});
-
-		TranslateMessage(&Msg);
-		DispatchMessage(&Msg);
 	}
 
 	crang_destroy_present(graphicsDevice, presentCtx);

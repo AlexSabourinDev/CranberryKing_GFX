@@ -1,5 +1,5 @@
-#ifndef __CRANBERRY_GFX
-#define __CRANBERRY_GFX
+#ifndef __CRANBERRY_GFX_BACKEND
+#define __CRANBERRY_GFX_BACKEND
 
 // Assumption log:
 // - Someone is not going to bind a graphics device with an incompatible surface. That's alright for my use case where I will most likely only have
@@ -224,9 +224,9 @@ void crang_execute_commands_immediate(crang_graphics_device_t* device, crang_cmd
 void crang_record_commands(crang_graphics_device_t* device, crang_present_t* present, crang_recording_buffer_id_t recordingBuffer, crang_cmd_buffer_t* cmdBuffer);
 void crang_render(crang_render_desc_t* renderDesc);
 
-#endif // __CRANBERRY_GFX
+#endif // __CRANBERRY_BACKEND_GFX
 
-#ifdef CRANBERRY_GFX_IMPLEMENTATION
+#ifdef CRANBERRY_GFX_BACKEND_IMPLEMENTATION
 
 #include <stddef.h>
 #include <stdbool.h>
@@ -2028,4 +2028,4 @@ void crang_record_commands(crang_graphics_device_t* device, crang_present_t* pre
 	memcpy(&vkDevice->commandBuffers.singleUseResources[recordingBuffer.id], &context.singleUseResources, sizeof(cranvk_transient_resources_t));
 }
 
-#endif // CRANBERRY_GFX_IMPLEMENTATION
+#endif // CRANBERRY_GFX_BACKEND_IMPLEMENTATION
