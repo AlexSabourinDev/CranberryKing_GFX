@@ -69,6 +69,7 @@ int main()
 	crang_shader_id_t vertShader = crang_request_shader_id(graphicsDevice, crang_shader_vertex);
 	crang_shader_id_t fragShader = crang_request_shader_id(graphicsDevice, crang_shader_fragment);
 
+
 	{
 		FILE* file = fopen("../../../Shaders/SPIR-V/default.vspv", "rb");
 		fseek(file, 0, SEEK_END);
@@ -97,7 +98,11 @@ int main()
 						.sourceSize = vertSize,
 						.shaderInputs =
 						{
-							.count = 0,
+							.inputs = (crang_shader_input_t[])
+							{
+								[0] = {.type = crang_shader_input_type_uniform_buffer, .binding = 0}
+							},
+							.count = 1,
 						}
 					},
 					[1] = &(crang_cmd_callback_t)
@@ -171,7 +176,7 @@ int main()
 					[0] = &(crang_cmd_create_buffer_t)
 					{
 						.bufferId = vertexBuffer,
-						.size = sizeof(float) * 3 * 4,
+						.size = sizeof(float) * 3 * 8,
 						.type = crang_buffer_vertex
 					},
 					[1] = &(crang_cmd_copy_to_buffer_t)
@@ -179,18 +184,22 @@ int main()
 						.bufferId = vertexBuffer,
 						.data = (float[])
 						{ 
-							-0.5f, 0.5f, 0.0f,
-							0.5f, 0.5f, 0.0f,
-							0.5f, -0.5f, 0.0f,
-							-0.5f, -0.5f, 0.0f
+							-1.0f, -1.0f, -1.0f,
+							1.0f, -1.0f, -1.0f,
+							1.0f, 1.0f, -1.0f,
+							-1.0f, 1.0f, -1.0f,
+							-1.0f, -1.0f, 1.0f,
+							1.0f, -1.0f, 1.0f,
+							1.0f, 1.0f, 1.0f,
+							-1.0f, 1.0f, 1.0f
 						},
-						.size = sizeof(float) * 3 * 4,
+						.size = sizeof(float) * 3 * 8,
 						.offset = 0
 					},
 					[2] = &(crang_cmd_create_buffer_t)
 					{
 						.bufferId = indexBuffer,
-						.size = sizeof(uint32_t) * 6,
+						.size = sizeof(uint32_t) * 6 * 6,
 						.type = crang_buffer_index
 					},
 					[3] = &(crang_cmd_copy_to_buffer_t)
@@ -198,9 +207,14 @@ int main()
 						.bufferId = indexBuffer,
 						.data = (uint32_t[])
 						{ 
-							0, 1, 2, 0, 2, 3
+							0, 1, 2, 0, 2, 3,
+							1, 5, 6, 1, 6, 2,
+							5, 4, 6, 5, 7, 6,
+							0, 3, 4, 4, 3, 7,
+							3, 2, 6, 3, 6, 7,
+							0, 6, 1, 0, 4, 5
 						},
-						.size = sizeof(uint32_t) * 6,
+						.size = sizeof(uint32_t) * 6 * 6,
 						.offset = 0
 					},
 				},
@@ -209,54 +223,78 @@ int main()
 	}
 
 	// Uniforms
+	typedef struct
+	{
+		float viewMatrix[16];
+		float projectionMatrix[16];
+	} camera_t;
+
+	camera_t camera = { 0 };
+	memcpy(&camera.viewMatrix, (float[16])
+	{
+		[0] = 1.0f,
+		[5] = 1.0f,
+		[10] = 1.0f,
+		[11] = 3.0f,
+		[15] = 1.0f
+	}, sizeof(float) * 16);
+
+	float l = -8.0f, r = 8.0f, t = 4.5f, b = -4.5f, n = 1.0f, f = 10.0f;
+	memcpy(&camera.projectionMatrix, (float[16])
+	{
+		[0] = 2.0f * n / (r - l),
+		[2] = (r + l) / (r - l),
+		[5] = -2.0f * n / (t - b),
+		[6] = (t + b) / (t - b),
+		[10] = (f + n) / (f - n),
+		[11] = -2.0f * n * f / (f - n),
+		[14] = 1.0f,
+	}, sizeof(float) * 16);
+
+	crang_buffer_id_t vertInputBuffer = crang_request_buffer_id(graphicsDevice);
+	crang_shader_input_id_t vertInputs = crang_request_shader_input_id(graphicsDevice);
 	{
 		crang_execute_commands_immediate(graphicsDevice,
 			&(crang_cmd_buffer_t)
 			{
 				.commandDescs = (crang_cmd_e[])
 				{
-					[0] = crang_cmd_create_buffer,
-					[1] = crang_cmd_copy_to_buffer,
-					[2] = crang_cmd_create_buffer,
-					[3] = crang_cmd_copy_to_buffer
+					[0] = crang_cmd_create_shader_input,
+					[1] = crang_cmd_create_buffer,
+					[2] = crang_cmd_copy_to_buffer,
+					[3] = crang_cmd_bind_to_shader_input
 				},
 				.commandDatas = (void*[])
 				{
-					[0] = &(crang_cmd_create_buffer_t)
+					[0] = &(crang_cmd_create_shader_input_t)
 					{
-						.bufferId = vertexBuffer,
-						.size = sizeof(float) * 3 * 4,
-						.type = crang_buffer_vertex
+						.shaderId = vertShader,
+						.shaderInputId = vertInputs
 					},
-					[1] = &(crang_cmd_copy_to_buffer_t)
+					[1] = &(crang_cmd_create_buffer_t)
 					{
-						.bufferId = vertexBuffer,
-						.data = (float[])
-						{ 
-							-0.5f, 0.5f, 0.0f,
-							0.5f, 0.5f, 0.0f,
-							0.5f, -0.5f, 0.0f,
-							-0.5f, -0.5f, 0.0f
-						},
-						.size = sizeof(float) * 3 * 4,
+						.bufferId = vertInputBuffer,
+						.size = sizeof(camera_t),
+						.type = crang_buffer_shader_input
+					},
+					[2] = &(crang_cmd_copy_to_buffer_t)
+					{
+						.bufferId = vertInputBuffer,
+						.data = &camera,
+						.size = sizeof(camera_t),
 						.offset = 0
 					},
-					[2] = &(crang_cmd_create_buffer_t)
+					[3] = &(crang_cmd_bind_to_shader_input_t)
 					{
-						.bufferId = indexBuffer,
-						.size = sizeof(uint32_t) * 6,
-						.type = crang_buffer_index
-					},
-					[3] = &(crang_cmd_copy_to_buffer_t)
-					{
-						.bufferId = indexBuffer,
-						.data = (uint32_t[])
-						{ 
-							0, 1, 2, 0, 2, 3
-						},
-						.size = sizeof(uint32_t) * 6,
-						.offset = 0
-					},
+						.shaderInputId = vertInputs,
+						.binding = 0,
+						.buffer = 
+						{
+							.bufferId = vertInputBuffer,
+							.size = sizeof(camera_t),
+							.offset = 0
+						}
+					}
 				},
 				.count = 4
 			});
@@ -297,9 +335,10 @@ int main()
 			.commandDescs = (crang_cmd_e[])
 			{
 				[0] = crang_cmd_bind_pipeline,
-				[1] = crang_cmd_bind_vertex_inputs,
-				[2] = crang_cmd_bind_index_input,
-				[3] = crang_cmd_draw_indexed,
+				[1] = crang_cmd_bind_shader_input,
+				[2] = crang_cmd_bind_vertex_inputs,
+				[3] = crang_cmd_bind_index_input,
+				[4] = crang_cmd_draw_indexed,
 			},
 			.commandDatas = (void*[])
 			{
@@ -307,7 +346,12 @@ int main()
 				{
 					.pipelineId = pipeline
 				},
-				[1] = &(crang_cmd_bind_vertex_inputs_t)
+				[1] = &(crang_cmd_bind_shader_input_t)
+				{
+					.pipelineId = pipeline,
+					.shaderInputId = vertInputs
+				},
+				[2] = &(crang_cmd_bind_vertex_inputs_t)
 				{
 					.bindings = (crang_vertex_input_binding_t[])
 					{
@@ -315,19 +359,19 @@ int main()
 					},
 					.count = 1
 				},
-				[2] = &(crang_cmd_bind_index_input_t)
+				[3] = &(crang_cmd_bind_index_input_t)
 				{
 					.bufferId = indexBuffer,
 					.offset = 0,
 					.indexType = crang_index_type_u32
 				},
-				[3] = &(crang_cmd_draw_indexed_t)
+				[4] = &(crang_cmd_draw_indexed_t)
 				{
-					.indexCount = 6,
+					.indexCount = 36,
 					.instanceCount = 1,
 				}
 			},
-			.count = 4
+			.count = 5
 		});
 
 	while (true)
