@@ -233,21 +233,20 @@ int main()
 	memcpy(&camera.viewMatrix, (float[16])
 	{
 		[0] = 1.0f,
+		[3] = 9.0f,
 		[5] = 1.0f,
 		[10] = 1.0f,
-		[11] = 3.0f,
+		[11] = 15.0f,
 		[15] = 1.0f
 	}, sizeof(float) * 16);
 
-	float l = -8.0f, r = 8.0f, t = 4.5f, b = -4.5f, n = 1.0f, f = 10.0f;
+	float l = -8.0f, r = 8.0f, t = 4.5f, b = -4.5f, n = 10.0f, f = 100.0f;
 	memcpy(&camera.projectionMatrix, (float[16])
 	{
 		[0] = 2.0f * n / (r - l),
-		[2] = (r + l) / (r - l),
 		[5] = -2.0f * n / (t - b),
-		[6] = (t + b) / (t - b),
-		[10] = (f + n) / (f - n),
-		[11] = -2.0f * n * f / (f - n),
+		[10] = 1.0f / (f - n),
+		[11] = -n / (f - n),
 		[14] = 1.0f,
 	}, sizeof(float) * 16);
 
