@@ -1392,6 +1392,8 @@ void crang_destroy_present(crang_graphics_device_t* device, crang_present_t* pre
 	cranvk_graphics_device_t* vkDevice = (cranvk_graphics_device_t*)device;
 	cranvk_present_t* vkPresent = (cranvk_present_t*)presentCtx;
 
+	vkDeviceWaitIdle(vkDevice->devices.logicalDevice);
+
 	cranvk_destroy_render_pass(vkDevice, &vkPresent->presentRenderPass);
 
 	for (uint32_t i = 0; i < cranvk_render_buffer_count; i++)
